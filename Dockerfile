@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM golang:1.7-alpine
+FROM golang:1.12-alpine AS builder
 
 # We aren't using the /go directory defined in base image
 WORKDIR /data
@@ -21,7 +21,7 @@ ENV GOPATH /data/go
 ENV npm_config_cache=/data/npm_cache
 
 # Create links based on passed in ALL_ARCH
-ARG ALL_ARCH
+ARG ALL_ARCH=amd64
 ENV ALL_ARCH ${ALL_ARCH}
 RUN for ARCH in ${ALL_ARCH}; do \
       ln -s -f "/data/std/${ARCH}" "/usr/local/go/pkg/linux_${ARCH}_static" ; \
@@ -33,3 +33,19 @@ RUN apk update && apk upgrade && apk add --no-cache git nodejs bash
 # /go/bin when doing real builds.
 RUN GOPATH=/tmp GOBIN=/usr/local/bin go get -u github.com/jteeuwen/go-bindata/...
 RUN GOPATH=/tmp GOBIN=/usr/local/bin go get github.com/tools/godep
+
+COPY . /data
+
+RUN go mod download
+
+# Build the binaries:
+# 1: Linux AMD 64:
+RUN env GOOS=linux GOARCH=amd64 go build -o ./builds/kuard-linux_x86_64 cmd/kuard/main.go
+
+# Stage 2: Releasable Image AMD64 ==============================================
+
+FROM alpine AS release-amd64
+
+COPY --from=builder --chown=nobody:nobody /data/builds/kuard-linux_x86_64 /kuard
+
+ENTRYPOINT [ "/kuard" ]
